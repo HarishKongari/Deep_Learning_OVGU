@@ -1,0 +1,209 @@
+
+import os
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+
+#Image_Path = "C:\\Soumick\\Prostate Classification task\\train1"
+Image_Path = "C:\\Courses\\Selected Topics in Image Understanding\\101_ObjectCategories"
+os.chdir(Image_Path)
+list_fams = os.listdir(os.getcwd()) # vector of strings with family names
+list_fams = sorted(list_fams, key=str.lower) #to ensure that the file names is sorted
+
+img_files_list = [] 
+labels_img_list = [] 
+label_name = []
+for directory, sub_directory, image_list in os.walk(Image_Path):
+    #print(directory)
+    #print(image_list)
+    label_img_list = directory.split('\\')
+    for image_name in image_list:
+        if ".jpg" in image_name.lower():  # check whether the file's DICOM
+            img_files_list.append(os.path.join(directory,image_name))
+            #labels_img_list.append(label_name)
+            label_name.append(label_img_list[-1])
+    
+# Get ref file
+sample_ds = cv2.imread(img_files_list[0], 0)
+plt.imshow(sample_ds, cmap = 'gray', interpolation = 'bicubic')
+plt.xticks([]), plt.yticks([])  # to hide tick values on X and Y axis
+plt.show()
+
+
+# Load dimensions based on the number of rows, columns, and slices (along the Z axis)
+check_pixel_dim = (int(len(sample_ds[0])), int(len(sample_ds[1])), len(img_files_list))
+
+
+image_array = []
+
+
+# loop through all the DICOM files
+for image in img_files_list:
+    # read the file
+    ds = cv2.imread(image, 0)
+    
+    img = cv2.resize(ds, (96, 96))
+    image_array.append(img)
+
+import tensorflow as tf
+print(tf.__version__)
+from tensorflow import keras
+
+train_image_array =[]
+test_image_array = [] 
+train_label_name = []
+test_label_name = []
+label_name_count = []
+count = 0
+count1 = 0   
+for j in list_fams:
+    count1 = count + count1
+    count = label_name.count(j)
+    label_name_count.append(count)
+    
+    for jj in range(int(0.8 * count)):
+        train_image_array.append(image_array[jj + count1])
+        train_label_name.append(label_name[jj + count1])
+    for jjj in range(count - int(0.8 * count)):
+        test_image_array.append(image_array[jj + jjj + count1])
+        test_label_name.append(label_name[jj + count1])
+
+train_image_array = np.asarray(train_image_array, dtype=np.float64) 
+test_image_array = np.asarray(test_image_array, dtype=np.float64) 
+
+
+# Encoding Categorical data( dependent data so no OneHotEncoder)
+from sklearn.preprocessing import LabelEncoder
+labelencoder_train = LabelEncoder()
+train_label_name = labelencoder_train.fit_transform(train_label_name)
+train_label_name = train_label_name.reshape(-1,1)
+
+
+test_label_name = labelencoder_train.fit_transform(test_label_name)
+test_label_name = test_label_name.reshape(-1,1)
+
+list_fams_new = labelencoder_train.fit_transform(list_fams)
+list_fams_new = list_fams_new.reshape(-1,1)
+list_fams_new1 = list_fams_new.reshape(102)
+list_new = list(list_fams_new1)
+
+
+
+class_weights1 = max(label_name_count)/np.array(label_name_count)
+class_weights1 =list(class_weights1)
+
+class_weights = dict(zip(list_new, class_weights1))
+# Feature Scaling
+
+from sklearn.preprocessing import StandardScaler
+scaler = {}
+for i in range(train_image_array.shape[1]):
+    scaler[i] = StandardScaler()
+    train_image_array[:, i, :] = scaler[i].fit_transform(train_image_array[:, i, :])
+    
+for i in range(test_image_array.shape[1]):
+    test_image_array[:, i, :] = scaler[i].fit_transform(test_image_array[:, i, :])
+
+tuple_inputsize = (96, 96, 1)
+train_image_array = train_image_array.reshape(-1, 96, 96, 1)
+test_image_array = test_image_array.reshape(-1, 96, 96, 1)
+
+
+model = keras.Sequential([tf.keras.layers.Convolution2D(filters = 16, kernel_size = (3, 3),
+                               padding = 'same',input_shape = tuple_inputsize,
+                               kernel_initializer = 
+                               tf.initializers.RandomNormal(mean = 0.0,
+                                stddev = 0.05, seed = None),
+                             bias_initializer=tf.initializers.constant(0.001)),
+    tf.keras.layers.MaxPooling2D(pool_size = (2,2)),
+    tf.keras.layers.Convolution2D(filters = 8, kernel_size = (3, 3),
+                               padding = 'same',input_shape = tuple_inputsize,
+                               kernel_initializer = 
+                               tf.initializers.RandomNormal(mean = 0.0,
+                                stddev = 0.05, seed = None),
+                             bias_initializer=tf.initializers.constant(0.001)),
+    tf.keras.layers.MaxPooling2D(pool_size = (2,2)),
+    tf.keras.layers.Flatten(),
+              tf.keras.layers.Dense((102 * 8), activation=tf.nn.relu,
+                           kernel_initializer = 
+                               tf.initializers.RandomNormal(mean = 0.0,
+                                stddev = 0.05, seed = None),
+                            kernel_regularizer=tf.keras.regularizers.l2(0.01),
+                activity_regularizer=tf.keras.regularizers.l1(0.01),
+                             bias_initializer=tf.initializers.constant(0.001)),
+              tf.keras.layers.Dense((102 * 4), activation=tf.nn.relu,
+                                    kernel_initializer = 
+                               tf.initializers.RandomNormal(mean = 0.0,
+                                stddev = 0.05, seed = None),
+                             bias_initializer=tf.initializers.constant(0.001)),
+              tf.keras.layers.Dense((102 * 2), activation=tf.nn.relu,
+                                    kernel_initializer = 
+                               tf.initializers.RandomNormal(mean = 0.0,
+                                stddev = 0.05, seed = None),
+                            kernel_regularizer=tf.keras.regularizers.l2(0.01),
+                activity_regularizer=tf.keras.regularizers.l1(0.01),
+                             bias_initializer=tf.initializers.constant(0.001)),
+              tf.keras.layers.Dense(102, activation = tf.nn.softmax)]) # default is no activation
+
+                              
+augmented_image = []
+augmented_image_labels = []
+
+for num in range (0, train_image_array.shape[0]):
+
+	for i in range(0, 1):
+			# original image:
+		augmented_image.append(train_image_array[num])
+		augmented_image_labels.append(train_label_name[num])
+
+		if True:
+			augmented_image.append(tf.keras.preprocessing.image.random_rotation(train_image_array[num], 20, row_axis=0, col_axis=1, channel_axis=2))
+			augmented_image_labels.append(train_label_name[num])
+
+		if True:
+			augmented_image.append(tf.keras.preprocessing.image.random_shear(train_image_array[num], 0.2, row_axis=0, col_axis=1, channel_axis=2))
+			augmented_image_labels.append(train_label_name[num])
+
+		if True:
+			augmented_image.append(tf.keras.preprocessing.image.random_shift(train_image_array[num], 0.2, 0.2, row_axis=0, col_axis=1, channel_axis=2))
+			augmented_image_labels.append(train_label_name[num])
+
+		if True:
+			augmented_image.append(tf.keras.preprocessing.image.random_zoom(train_image_array[num], (0.9, 0.9), row_axis=0, col_axis=1, channel_axis=2))
+			augmented_image_labels.append(train_label_name[num])
+
+
+
+augmented_image = tf.convert_to_tensor(augmented_image)
+
+augmented_image_labels = tf.convert_to_tensor(augmented_image_labels)
+
+import numpy as np
+augmented_image = np.asarray(augmented_image).reshape((-1, 96, 96, 1))
+
+augmented_image_labels =  np.array(augmented_image_labels)
+
+augmented_image_labels =  augmented_image_labels.reshape(36400,1)
+
+tf.data.Dataset.from_tensor_slices(augmented_image)
+tf.data.Dataset.from_tensor_slices(augmented_image_labels)
+
+model.compile(tf.keras.optimizers.Adam(learning_rate=0.0005),
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+model.fit(augmented_image, augmented_image_labels, epochs = 10,
+          validation_data = (test_image_array, test_label_name))
+
+'''model.fit(augmented_image, augmented_image_labels, epochs = 10,
+          validation_data = (test_image_array, test_label_name), class_weight = class_weights)'''
+import pandas as pd
+classes=np.arange(0, 102, 1)
+y_pred=model.predict_classes(test_image_array)
+con_mat = tf.math.confusion_matrix(labels=test_label_name, predictions=y_pred).numpy()
+
+con_mat_norm = np.around(con_mat.astype('float') / con_mat.sum(axis=1)[:, np.newaxis], decimals=2)
+ 
+con_mat_df = pd.DataFrame(con_mat_norm,
+                     index = classes, 
+                     columns = classes)
